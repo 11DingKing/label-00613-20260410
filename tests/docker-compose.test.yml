@@ -1,0 +1,64 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: pdf-ofd-mysql-test
+    environment:
+      MYSQL_ROOT_PASSWORD: root123
+      MYSQL_DATABASE: pdf_to_ofd
+    volumes:
+      - ../sql/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot123"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 30s
+    networks:
+      - test-network
+
+  backend-java:
+    build:
+      context: ../backend-java
+      dockerfile: Dockerfile
+    container_name: pdf-ofd-java-test
+    volumes:
+      - test_data:/data
+    depends_on:
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
+      interval: 10s
+      timeout: 5s
+      start_period: 60s
+      retries: 5
+    networks:
+      - test-network
+
+  backend-csharp:
+    build:
+      context: ../backend-csharp
+      dockerfile: Dockerfile
+    container_name: pdf-ofd-csharp-test
+    ports:
+      - "8081:5000"
+    environment:
+      - ConnectionStrings__DefaultConnection=Server=mysql;Port=3306;Database=pdf_to_ofd;User=root;Password=root123;
+      - JavaService__BaseUrl=http://backend-java:8080
+      - DataPath=/data
+    volumes:
+      - test_data:/data
+    depends_on:
+      mysql:
+        condition: service_healthy
+      backend-java:
+        condition: service_healthy
+    networks:
+      - test-network
+
+volumes:
+  test_data:
+
+networks:
+  test-network:
+    driver: bridge
