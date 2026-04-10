@@ -35,6 +35,8 @@ builder.Services.AddHttpClient<IJavaConverterClient, JavaConverterClient>(client
 });
 
 // Services
+builder.Services.AddSingleton<IConversionTaskQueue, ConversionTaskQueue>();
+builder.Services.AddHostedService<ConversionBackgroundService>();
 builder.Services.AddScoped<IConversionService, ConversionService>();
 builder.Services.AddScoped<IHistoryService, HistoryService>();
 

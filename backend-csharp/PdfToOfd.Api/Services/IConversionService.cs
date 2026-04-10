@@ -14,24 +14,23 @@ public class ConversionService : IConversionService
 {
     private readonly ILogger<ConversionService> _logger;
     private readonly Data.AppDbContext _dbContext;
-    private readonly IJavaConverterClient _javaClient;
+    private readonly IConversionTaskQueue _taskQueue;
     private readonly string _dataPath;
 
     public ConversionService(
         ILogger<ConversionService> logger,
         Data.AppDbContext dbContext,
-        IJavaConverterClient javaClient,
+        IConversionTaskQueue taskQueue,
         IConfiguration configuration)
     {
         _logger = logger;
         _dbContext = dbContext;
-        _javaClient = javaClient;
+        _taskQueue = taskQueue;
         _dataPath = configuration["DataPath"] ?? "/data";
     }
 
     public async Task<UploadResponse> UploadAndConvertAsync(Stream fileStream, string fileName, long fileSize)
     {
-        // Create record
         var record = new ConversionRecord
         {
             FileName = fileName,
@@ -44,7 +43,6 @@ public class ConversionService : IConversionService
 
         _logger.LogInformation("Created conversion record: {Id} for file: {FileName}", record.Id, fileName);
 
-        // Save PDF file
         var pdfDir = Path.Combine(_dataPath, "pdf");
         var ofdDir = Path.Combine(_dataPath, "ofd");
         Directory.CreateDirectory(pdfDir);
@@ -56,10 +54,8 @@ public class ConversionService : IConversionService
 
         record.PdfPath = pdfPath;
         record.OfdPath = ofdPath;
-        record.Status = ConversionStatus.Processing;
         await _dbContext.SaveChangesAsync();
 
-        // Save file
         await using (var fs = new FileStream(pdfPath, FileMode.Create))
         {
             await fileStream.CopyToAsync(fs);
@@ -67,38 +63,15 @@ public class ConversionService : IConversionService
 
         _logger.LogInformation("Saved PDF file: {Path}", pdfPath);
 
-        // Call Java converter
-        try
-        {
-            var result = await _javaClient.ConvertAsync(pdfPath, ofdPath);
+        var task = new ConversionTask(record.Id, pdfPath, ofdPath, fileName);
+        _taskQueue.QueueBackgroundWorkItem(task);
 
-            if (result.Success)
-            {
-                record.Status = ConversionStatus.Success;
-                record.PageCount = result.PageCount;
-                _logger.LogInformation("Conversion successful: {Id}, pages: {Pages}", record.Id, result.PageCount);
-            }
-            else
-            {
-                record.Status = ConversionStatus.Failed;
-                record.ErrorMessage = result.ErrorMessage;
-                _logger.LogWarning("Conversion failed: {Id}, error: {Error}", record.Id, result.ErrorMessage);
-            }
-        }
-        catch (Exception ex)
-        {
-            record.Status = ConversionStatus.Failed;
-            record.ErrorMessage = ex.Message;
-            _logger.LogError(ex, "Conversion exception: {Id}", record.Id);
-        }
-
-        record.UpdatedAt = DateTime.UtcNow;
-        await _dbContext.SaveChangesAsync();
+        _logger.LogInformation("Queued conversion task: {Id}", record.Id);
 
         return new UploadResponse(
-            record.Status == ConversionStatus.Success,
+            true,
             record.Id,
-            record.Status == ConversionStatus.Success ? "Conversion completed" : record.ErrorMessage
+            "Conversion queued"
         );
     }
 

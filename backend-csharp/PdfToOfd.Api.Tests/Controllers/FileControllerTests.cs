@@ -82,7 +82,7 @@ public class FileControllerTests
         mockFile.Setup(f => f.FileName).Returns("test.pdf");
         mockFile.Setup(f => f.OpenReadStream()).Returns(stream);
 
-        var expectedResponse = new UploadResponse(true, 1, "Conversion completed");
+        var expectedResponse = new UploadResponse(true, 1, "Conversion queued");
         _mockConversionService
             .Setup(s => s.UploadAndConvertAsync(It.IsAny<Stream>(), "test.pdf", content.Length))
             .ReturnsAsync(expectedResponse);
